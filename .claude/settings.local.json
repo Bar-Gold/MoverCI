@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import yaml,sys; d=yaml.safe_load\\(open\\('.woodpecker.yaml'\\)\\); print\\('OK steps:', list\\(d['steps'].keys\\(\\)\\), '| commands:', len\\(d['steps']['sync-to-prod']['commands']\\)\\)\")",
+      "Bash(sed -i -E 's/\\\\$\\\\{\\([A-Za-z_][A-Za-z0-9_]*\\)\\\\}/$\\\\1/g' .woodpecker.yaml)",
+      "Bash(grep -n '\\\\${' .woodpecker.yaml)",
+      "Bash(python -c \"import yaml; d=yaml.safe_load\\(open\\('.woodpecker.yaml'\\)\\); print\\('OK, commands:', len\\(d['steps']['sync-to-prod']['commands']\\)\\)\")",
+      "Bash(git --version)",
+      "Bash(shellcheck --version)",
+      "Bash(mktemp -d)",
+      "Bash(bash \"C:\\\\Users\\\\User\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Bar-CloudOps-MoverCI\\\\ef621bd3-e08d-4f31-88d3-d55f1ac40905\\\\scratchpad\\\\test_pipeline.sh\" 2>&1)",
+      "Bash(bash \"C:\\\\Users\\\\User\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Bar-CloudOps-MoverCI\\\\ef621bd3-e08d-4f31-88d3-d55f1ac40905\\\\scratchpad\\\\test_pipeline.sh\")",
+      "Bash(python -c \"import yaml; d=yaml.safe_load\\(open\\('.woodpecker.yaml'\\)\\); print\\('YAML OK, command entries:', len\\(d['steps']['sync-to-prod']['commands']\\)\\)\")",
+      "Bash(python -c \"import yaml; d=yaml.safe_load\\(open\\('.woodpecker.yaml'\\)\\); print\\('YAML OK'\\); print\\('clone env:', d['clone']['git']['environment']\\); print\\('first cmd:', d['steps']['sync-to-prod']['commands'][0]\\)\")",
+      "Bash(python -c \"import yaml; d=yaml.safe_load\\(open\\('.woodpecker.yaml'\\)\\); print\\('YAML OK'\\); print\\('clone env:', d['clone']['git']['environment']\\)\")",
+      "Bash(python -c \"import yaml; d=yaml.safe_load\\(open\\('.woodpecker.yaml'\\)\\); print\\('YAML OK. when:', d['when']\\); print\\('env keys:', list\\(d['steps']['sync-to-prod']['environment'].keys\\(\\)\\)\\)\")",
+      "Bash(python -c \"import yaml; d=yaml.safe_load\\(open\\('.woodpecker.yaml'\\)\\); print\\('YAML OK'\\); print\\('top keys:', list\\(d.keys\\(\\)\\)\\); print\\('skip_clone:', d.get\\('skip_clone'\\)\\); print\\('when:', d['when']\\)\")"
+    ]
+  }
+}

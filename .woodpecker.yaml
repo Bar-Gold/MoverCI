@@ -1,0 +1,164 @@
+# .woodpecker.yaml
+#
+# Central chart-mover. Lives in ONE repo and syncs any dev -> prod pair.
+# The source (dev) repo is cloned by the step itself, so this pipeline does not
+# depend on which repo triggered it. Run it MANUALLY and override the DEV_*/
+# PROD_*/SYNC_PATHS values as parameters for each target.
+when:
+  - event: manual
+
+# No implicit clone: this pipeline needs no checkout of its own. The source
+# (dev) repo is cloned explicitly in the step below.
+skip_clone: true
+
+steps:
+  sync-to-prod:
+    image: alpine/git:latest
+    environment:
+      # ---- Set/override these PER RUN (manual parameters) ----
+      DEV_URL: "https://bitbucket-dev.example.com/scm/PROJ/helm-charts.git"
+      DEV_BRANCH: "master"
+      PROD_URL: "https://bitbucket-prod.example.com/scm/PROJ/helm-charts.git"
+      PROD_BRANCH: "master"
+      SYNC_PATHS: "HelmCharts chart"
+      BOT_NAME: "woodpecker-ci"
+      BOT_EMAIL: "woodpecker-ci@example.com"
+      DEV_TOKEN:
+        from_secret: dev_token
+      PROD_TOKEN:
+        from_secret: prod_token
+    commands:
+      - set -eu
+
+      - 'DEV_AUTH="Authorization: Bearer $DEV_TOKEN"'
+      - 'PROD_AUTH="Authorization: Bearer $PROD_TOKEN"'
+
+      - git config --global user.name "$BOT_NAME"
+      - git config --global user.email "$BOT_EMAIL"
+      - git config --global --add safe.directory '*'
+
+      # --- Clone the SOURCE repo ourselves. A full clone brings ALL tags,
+      #     so no partial/tags workaround is needed here. ---
+      - git -c http.extraHeader="$DEV_AUTH" clone --branch "$DEV_BRANCH" "$DEV_URL" src
+      - cd src
+      - DEV_REF=$(git rev-parse HEAD)
+
+      # --- Base the work on the prod branch ---
+      - git remote add prod "$PROD_URL"
+      - git -c http.extraHeader="$PROD_AUTH" fetch prod "$PROD_BRANCH"
+      - git checkout -B _sync_work prod/$PROD_BRANCH
+
+      # =========================================================
+      # Additive, subtree-scoped sync for each path:
+      #   - file only in dev        -> ADD to prod
+      #   - file in both, identical -> nothing
+      #   - file in both, differs   -> LOG the diff, leave prod UNCHANGED
+      #   - file only in prod       -> leave untouched (never deleted)
+      # =========================================================
+      - |
+        DIFFS=""
+        BASE_TREE="prod/$PROD_BRANCH"
+
+        for P in $SYNC_PATHS; do
+          echo ">>> Syncing path: $P"
+
+          DEV_FILES=$(git ls-tree -r --name-only "$DEV_REF" -- "$P" || true)
+          PROD_FILES=$(git ls-tree -r --name-only "$BASE_TREE" -- "$P" || true)
+          ALL_FILES=$(printf '%s\n%s\n' "$DEV_FILES" "$PROD_FILES" | sort -u | sed '/^$/d')
+
+          for f in $ALL_FILES; do
+            in_dev=$(git cat-file -e "$DEV_REF:$f" 2>/dev/null && echo yes || echo no)
+            in_prod=$(git cat-file -e "$BASE_TREE:$f" 2>/dev/null && echo yes || echo no)
+
+            if [ "$in_dev" = "yes" ] && [ "$in_prod" = "no" ]; then
+              echo "  ADD: $f"
+              mkdir -p "$(dirname "$f")"
+              git cat-file -p "$DEV_REF:$f" > "$f"
+              git add "$f"
+
+            elif [ "$in_dev" = "yes" ] && [ "$in_prod" = "yes" ]; then
+              if [ "$(git rev-parse "$DEV_REF:$f")" = "$(git rev-parse "$BASE_TREE:$f")" ]; then
+                echo "  SAME: $f"
+              else
+                echo "  DIFFERS (prod kept unchanged): $f"
+                DIFFS="$DIFFS $f"
+              fi
+            fi
+            # in_dev=no & in_prod=yes -> prod-only, left untouched
+          done
+        done
+
+        # --- Log files that exist on both but differ (prod left unchanged) ---
+        if [ -n "$DIFFS" ]; then
+          echo "=================================================="
+          echo "FILES THAT DIFFER FROM PROD (left UNCHANGED):"
+          for f in $DIFFS; do
+            echo "--------------------------------------------------"
+            echo "FILE: $f   (--- prod   +++ dev)"
+            tmp=$(mktemp -d)
+            git cat-file -p "$BASE_TREE:$f" > "$tmp/prod"
+            git cat-file -p "$DEV_REF:$f"   > "$tmp/dev"
+            diff -u "$tmp/prod" "$tmp/dev" || true
+            rm -rf "$tmp"
+          done
+          echo "=================================================="
+        fi
+
+      # --- Commit + push the additions ---
+      - |
+        if git diff --cached --quiet; then
+          echo "No new files to add to prod."
+        else
+          git commit -m "Add helm charts from dev [ci skip] (source: $DEV_REF, paths: $SYNC_PATHS)"
+          git -c http.extraHeader="$PROD_AUTH" \
+            push prod HEAD:refs/heads/$PROD_BRANCH
+        fi
+
+      # --- Verify the dev files actually landed in prod (fail if not) ---
+      # Re-fetch prod and confirm every dev file under SYNC_PATHS is present.
+      # Catches a mistyped SYNC_PATHS (nothing matched) or a push that did
+      # not take effect, instead of "succeeding" while prod is unchanged.
+      - |
+        git -c http.extraHeader="$PROD_AUTH" fetch prod "$PROD_BRANCH"
+
+        COUNT=0
+        MISSING=""
+        for P in $SYNC_PATHS; do
+          for f in $(git ls-tree -r --name-only "$DEV_REF" -- "$P"); do
+            COUNT=$((COUNT + 1))
+            git cat-file -e "prod/$PROD_BRANCH:$f" 2>/dev/null || MISSING="$MISSING $f"
+          done
+        done
+
+        if [ "$COUNT" = 0 ]; then
+          echo "ERROR: no files matched SYNC_PATHS ($SYNC_PATHS) in dev - nothing was synced"
+          exit 1
+        fi
+        if [ -n "$MISSING" ]; then
+          echo "ERROR: these dev files did NOT end up in prod:"
+          for f in $MISSING; do echo "  - $f"; done
+          exit 1
+        fi
+        echo ">>> Verified: all $COUNT dev file(s) under SYNC_PATHS are present in prod/$PROD_BRANCH"
+
+      # --- Tags: push every dev tag (with its commit) to prod ---
+      # Existing tags on prod are skipped and logged. No --force, no overwrite.
+      - |
+        echo ">>> Syncing tags (skip existing, no overwrite)"
+        git -c http.extraHeader="$PROD_AUTH" ls-remote --tags prod \
+          | sed 's#.*refs/tags/##; s/\^{}//' | sort -u > /tmp/prod_tags || true
+
+        for t in $(git tag); do
+          c=$(git rev-list -n 1 "$t")
+          if grep -qxF "$t" /tmp/prod_tags; then
+            echo "  SKIP (exists on prod): $t -> $c"
+            continue
+          fi
+          if git -c http.extraHeader="$PROD_AUTH" \
+               push prod "refs/tags/$t:refs/tags/$t" 2>/tmp/pusherr; then
+            echo "  PUSHED: $t -> $c"
+          else
+            echo "  SKIP (rejected by prod): $t -> $c"
+            cat /tmp/pusherr
+          fi
+        done

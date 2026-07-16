@@ -8,8 +8,14 @@ A single [Woodpecker CI](https://woodpecker-ci.org/) pipeline (`.woodpecker.yaml
 one-way syncs selected Helm chart paths from a **dev** git repo into a **separate production
 Bitbucket repository**. It is a **central mover**: it lives in this one repo and can sync any
 dev→prod pair, driven entirely by per-run parameters — the target repos need no config of
-their own. There is no application code, build, or test suite — the entire deliverable is the
-pipeline definition.
+their own. There is no application code, build, or test suite for the sync itself — the
+entire deliverable is the pipeline definition.
+
+The repo also has one unrelated utility script, `encode.py`, which packs an arbitrary file
+into a PNG (pure stdlib, no real steganography — it just serializes bytes into pixel data with
+a header row). `.woodpecker_encoded.png` is a sample output from running it against
+`.woodpecker.yaml`. Neither file is read by, or affects, the pipeline — don't assume they're
+part of the sync mechanism.
 
 ## How the pipeline runs
 
@@ -49,6 +55,11 @@ For each file under a path in `SYNC_PATHS`:
 
 Tags are pushed additively, each logged with the commit it points to: existing tags on prod
 are skipped, **no `--force`**, nothing is ever overwritten.
+
+After the push, the step re-fetches `prod` and verifies every dev file under `SYNC_PATHS` is
+actually present there, failing the build (`exit 1`) if `SYNC_PATHS` matched nothing or any
+file didn't land — so a mistyped path or a push that silently didn't take effect shows up as a
+failed run, not a falsely-green one.
 
 ## Editing conventions
 

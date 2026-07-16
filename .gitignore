@@ -1,0 +1,10 @@
+# Local, per-user Claude Code settings (not shared project config)
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.pyc
+
+# OS cruft
+.DS_Store
+Thumbs.db

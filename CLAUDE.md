@@ -31,6 +31,10 @@ part of the sync mechanism.
   HTTP header (`$DEV_AUTH` / `$PROD_AUTH`) — never in the remote URL. Store them as org-level
   secrets so they're configured once. If one account can read dev and write prod, both may
   point at the same secret.
+- Every git command that hits `$DEV_URL`/`$PROD_URL` (clone, fetch, push, ls-remote) also
+  passes `-c http.sslVerify=false`, since the internal Bitbucket hosts use certs git doesn't
+  trust by default. It's set per-invocation via `-c`, the same way the auth header is, rather
+  than as global config.
 - Every run commits and pushes to prod directly (no dry-run / preview mode).
 
 ### Running it against a repo

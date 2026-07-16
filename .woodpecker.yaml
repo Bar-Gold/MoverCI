@@ -39,13 +39,13 @@ steps:
 
       # --- Clone the SOURCE repo ourselves. A full clone brings ALL tags,
       #     so no partial/tags workaround is needed here. ---
-      - git -c http.extraHeader="$DEV_AUTH" clone --branch "$DEV_BRANCH" "$DEV_URL" src
+      - git -c http.extraHeader="$DEV_AUTH" -c http.sslVerify=false clone --branch "$DEV_BRANCH" "$DEV_URL" src
       - cd src
       - DEV_REF=$(git rev-parse HEAD)
 
       # --- Base the work on the prod branch ---
       - git remote add prod "$PROD_URL"
-      - git -c http.extraHeader="$PROD_AUTH" fetch prod "$PROD_BRANCH"
+      - git -c http.extraHeader="$PROD_AUTH" -c http.sslVerify=false fetch prod "$PROD_BRANCH"
       - git checkout -B _sync_work prod/$PROD_BRANCH
 
       # =========================================================
@@ -110,7 +110,7 @@ steps:
           echo "No new files to add to prod."
         else
           git commit -m "Add helm charts from dev [ci skip] (source: $DEV_REF, paths: $SYNC_PATHS)"
-          git -c http.extraHeader="$PROD_AUTH" \
+          git -c http.extraHeader="$PROD_AUTH" -c http.sslVerify=false \
             push prod HEAD:refs/heads/$PROD_BRANCH
         fi
 
@@ -119,7 +119,7 @@ steps:
       # Catches a mistyped SYNC_PATHS (nothing matched) or a push that did
       # not take effect, instead of "succeeding" while prod is unchanged.
       - |
-        git -c http.extraHeader="$PROD_AUTH" fetch prod "$PROD_BRANCH"
+        git -c http.extraHeader="$PROD_AUTH" -c http.sslVerify=false fetch prod "$PROD_BRANCH"
 
         COUNT=0
         MISSING=""
@@ -145,7 +145,7 @@ steps:
       # Existing tags on prod are skipped and logged. No --force, no overwrite.
       - |
         echo ">>> Syncing tags (skip existing, no overwrite)"
-        git -c http.extraHeader="$PROD_AUTH" ls-remote --tags prod \
+        git -c http.extraHeader="$PROD_AUTH" -c http.sslVerify=false ls-remote --tags prod \
           | sed 's#.*refs/tags/##; s/\^{}//' | sort -u > /tmp/prod_tags || true
 
         for t in $(git tag); do
@@ -154,7 +154,7 @@ steps:
             echo "  SKIP (exists on prod): $t -> $c"
             continue
           fi
-          if git -c http.extraHeader="$PROD_AUTH" \
+          if git -c http.extraHeader="$PROD_AUTH" -c http.sslVerify=false \
                push prod "refs/tags/$t:refs/tags/$t" 2>/tmp/pusherr; then
             echo "  PUSHED: $t -> $c"
           else
